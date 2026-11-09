@@ -1,0 +1,21 @@
+{
+  "topic": "AI·테크 업계 주요 소식",
+  "audience": "IT에 관심 있는 한국 직장인",
+  "tone": "쉽고 담백하게, 과장 없이",
+  "feeds": [
+    "https://news.google.com/rss/search?q=%EC%9D%B8%EA%B3%B5%EC%A7%80%EB%8A%A5+when:1d&hl=ko&gl=KR&ceid=KR:ko",
+    "https://news.google.com/rss/search?q=AI+when:1d&hl=en-US&gl=US&ceid=US:en"
+  ],
+  "max_candidates": 25,
+  "platforms": {
+    "instagram": true,
+    "threads": true,
+    "x": true
+  },
+  "card": {
+    "brand": "@my_account",
+    "bg": "#0F172A",
+    "accent": "#38BDF8",
+    "text": "#F8FAFC"
+  }
+}

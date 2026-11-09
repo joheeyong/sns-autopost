@@ -1,0 +1,32 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+  <key>Label</key>
+  <string>com.luxrobo.sns-autopost</string>
+  <key>ProgramArguments</key>
+  <array>
+    <string>/Users/luxrobo/sns-autopost/.venv/bin/python</string>
+    <string>/Users/luxrobo/sns-autopost/autopost.py</string>
+  </array>
+  <key>WorkingDirectory</key>
+  <string>/Users/luxrobo/sns-autopost</string>
+  <!-- 매일 오전 8시 (맥이 잠자기 중이었다면 깨어난 직후 실행) -->
+  <key>StartCalendarInterval</key>
+  <dict>
+    <key>Hour</key><integer>8</integer>
+    <key>Minute</key><integer>0</integer>
+  </dict>
+  <key>EnvironmentVariables</key>
+  <dict>
+    <key>PATH</key>
+    <string>/Users/luxrobo/.local/bin:/usr/bin:/bin:/usr/sbin:/sbin</string>
+    <key>HOME</key>
+    <string>/Users/luxrobo</string>
+  </dict>
+  <key>StandardOutPath</key>
+  <string>/Users/luxrobo/sns-autopost/logs/autopost.log</string>
+  <key>StandardErrorPath</key>
+  <string>/Users/luxrobo/sns-autopost/logs/autopost.log</string>
+</dict>
+</plist>
