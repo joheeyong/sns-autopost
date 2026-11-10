@@ -12,7 +12,7 @@ import requests  # noqa: E402
 from PIL import Image, ImageDraw, ImageFont  # noqa: E402
 
 NEWS = [
-    {"title": "이강인 60분, 아틀레티코 역전패", "link": "https://n/1", "summary": "", "source": "스포츠타임스"},
+    {"title": "이강인 60분, 아틀레티코 1-2 역전패", "link": "https://n/1", "summary": "", "source": "스포츠타임스"},
     {"title": "양승우 FA컵 이변", "link": "https://n/2", "summary": "", "source": "SPOTV NEWS"},
     {"title": "아스널 5연승", "link": "https://n/3", "summary": "", "source": "이투데이"},
     {"title": "맨유 18위", "link": "https://n/4", "summary": "", "source": "TSN KOREA"},
@@ -78,6 +78,17 @@ class Validate(unittest.TestCase):
         probs = a.validate(good_post(card_points=pts), NEWS)
         self.assertTrue(any("지어낸 숫자" in p for p in probs))
 
+    def test_real_score_passes(self):
+        m = {"home": "아틀레티코", "away": "바르셀로나", "home_score": 1, "away_score": 2}
+        pts = [{"head": "h", "desc": "d", "match": m}] + [{"head": "h", "desc": "d"}] * 2
+        self.assertEqual(a.validate(good_post(card_points=pts), NEWS), [])
+
+    def test_made_up_score_rejected(self):
+        m = {"home": "아틀레티코", "away": "바르셀로나", "home_score": 3, "away_score": 0}
+        pts = [{"head": "h", "desc": "d", "match": m}] + [{"head": "h", "desc": "d"}] * 2
+        probs = a.validate(good_post(card_points=pts), NEWS)
+        self.assertTrue(any("지어낸 스코어" in p for p in probs))
+
     def test_empty_field_rejected(self):
         self.assertIn("instagram 가 비어 있음", a.validate(good_post(instagram=""), NEWS))
 
@@ -114,7 +125,8 @@ class Cards(unittest.TestCase):
         pts = [{"head": "맨유 18위", "desc": "설명", "league": "EPL", "stat": "18위",
                 "stat_label": "순위", "color": "#DA291C"},
                {"head": "숫자 없는 소식", "desc": "설명", "color": "잘못된색"},
-               {"head": "긴 숫자", "desc": "설명", "stat": "1만9806명"}]
+               {"head": "경기 결과", "desc": "설명", "match": {"home": "아틀레티코 마드리드", "away": "바르셀로나",
+                "home_score": 1, "away_score": 2, "home_color": "#CB3524", "away_color": "#A50044"}}]
         with tempfile.TemporaryDirectory() as d:
             paths = a.make_cards(cfg, good_post(card_points=pts, sources=["A"]), Path(d))
             self.assertEqual(len(paths), 4)

@@ -144,7 +144,8 @@ PROMPT = """너는 SNS 뉴스 큐레이터다. 아래 오늘의 뉴스 후보 �
       "league": "EPL / 라리가 / 분데스리가 / 세리에A / 리그1 / UCL / FA컵 / 대표팀 / 기타 중 하나",
       "stat": "카드에 크게 보여 줄 핵심 숫자 하나 (예: '18위', '1-2', '5골', '60분'). 기사에 나온 숫자만, 6자 이내, 없으면 빈 문자열",
       "stat_label": "그 숫자가 뭔지 짧은 설명 (14자 이내, 예: '프리미어리그 순위')",
-      "color": "이 소식 중심 팀의 대표색 hex (예: 맨유 #DA291C, 아스널 #EF0107, 바르사 #A50044). 팀이 없으면 #1E3A8A"}}
+      "color": "이 소식 중심 팀의 대표색 hex (예: 맨유 #DA291C, 아스널 #EF0107, 바르사 #A50044). 팀이 없으면 #1E3A8A",
+      "match": "경기 결과 소식일 때만 {{\"home\": \"홈팀(8자 이내)\", \"away\": \"원정팀(8자 이내)\", \"home_score\": 숫자, \"away_score\": 숫자, \"home_color\": \"hex\", \"away_color\": \"hex\"}}, 기사에 스코어가 없거나 경기 소식이 아니면 null"}}
   ],
   "instagram": "인스타 캡션 (소식 3개 요약, 1500자 이내, 링크 금지, 해시태그 5~8개는 맨 마지막 줄에만)",
   "threads": "스레드 글 (380자 이내, 소식 3개 요약, 해시태그·링크 금지)",
@@ -251,6 +252,20 @@ def validate(post, news):
         nums = re.findall(r"\d+", stat.replace(",", ""))
         if any(n not in ref_text for n in nums):
             probs.append(f"card_points {i}번 stat '{stat}' 의 숫자가 고른 기사에 없음 (지어낸 숫자)")
+    for i, p in enumerate(pts if isinstance(pts, list) else [], 1):
+        m = p.get("match") if isinstance(p, dict) else None
+        if not m:
+            continue
+        try:
+            hs, as_ = int(m["home_score"]), int(m["away_score"])
+            ok = m.get("home") and m.get("away") and 0 <= hs <= 20 and 0 <= as_ <= 20
+        except (KeyError, TypeError, ValueError):
+            ok = False
+        if not ok:
+            probs.append(f"card_points {i}번 match 형식이 잘못됨")
+        elif f"{hs}-{as_}" not in ref_text and f"{as_}-{hs}" not in ref_text \
+                and f"{hs}대{as_}" not in ref_text and f"{as_}대{hs}" not in ref_text:
+            probs.append(f"card_points {i}번 스코어 {hs}-{as_} 가 고른 기사에 없음 (지어낸 스코어)")
     if len(set(post["used_links"])) != 3:
         probs.append("used_links 는 서로 다른 3개여야 함")
     return probs
@@ -426,7 +441,10 @@ def make_story_card(cfg, post, i, path):
 
     # 가운데: 핵심 숫자 + 제목 + 설명 (높이를 먼저 재서 세로 가운데 배치)
     stat = str(pt.get("stat") or "").strip()
-    big = not stat  # 숫자가 없으면 제목을 크게
+    match = pt.get("match") if isinstance(pt.get("match"), dict) else None
+    if match:
+        stat = ""  # 스코어보드가 숫자 자리를 대신함
+    big = not stat and not match  # 숫자도 스코어도 없으면 제목을 크게
     f_head, f_desc, f_label = font(96 if big else 68, 6), font(48 if big else 44, 2), font(42, 4)
     lh_head, lh_desc = (122, 68) if big else (88, 62)
     size = 300
@@ -435,10 +453,15 @@ def make_story_card(cfg, post, i, path):
     heads = wrap(d, pt["head"], f_head, W - 2 * P)
     descs = wrap(d, pt["desc"], f_desc, W - 2 * P)
     stat_h = (int(size * 1.08) + (90 if pt.get("stat_label") else 0)) if stat else 0
+    if match:
+        stat_h = 420
     total = stat_h + 68 + len(heads) * lh_head + 16 + len(descs) * lh_desc
     top, bottom = 200, H - P - 90
     y = top + max(0, (bottom - top - total) // 2)
 
+    if match:
+        draw_scoreboard(d, match, y, accent, white)
+        y += 420
     if stat:
         d.text((P - 6, y), stat, font=font(size, 6), fill=white)
         y += int(size * 1.08)
@@ -457,6 +480,30 @@ def make_story_card(cfg, post, i, path):
 
     footer(d, c, post, page=f"{i + 1} / 4")
     img.save(path, "JPEG", quality=92)
+
+
+def draw_scoreboard(d, m, y, accent, white):
+    """경기 결과: 홈팀 [점수 : 점수] 원정팀."""
+    box_top, box_h = y, 360
+    d.rounded_rectangle([P, box_top, W - P, box_top + box_h], radius=36, fill=(0, 0, 0))
+    hs, as_ = int(m["home_score"]), int(m["away_score"])
+    f_score, f_team, f_ft = font(190, 6), font(46, 6), font(30, 4)
+    score = f"{hs} : {as_}"
+    sw = d.textlength(score, font=f_score)
+    d.text(((W - sw) / 2, box_top + 50), score, font=f_score, fill=white)
+    ft = "FULL TIME"
+    d.text(((W - d.textlength(ft, font=f_ft)) / 2, box_top + 22), ft, font=f_ft, fill=accent)
+    for side, name, color, win in (("L", m["home"], m.get("home_color"), hs > as_),
+                                   ("R", m["away"], m.get("away_color"), as_ > hs)):
+        cx = P + 150 if side == "L" else W - P - 150
+        lines = wrap(d, str(name), f_team, 240)[:2]
+        ty = box_top + box_h - 40 - len(lines) * 56
+        for ln in lines:
+            d.text((cx - d.textlength(ln, font=f_team) / 2, ty), ln, font=f_team,
+                   fill=white if win or hs == as_ else mix(white, (0, 0, 0), 0.35))
+            ty += 56
+        bar = hex_rgb(color, default=(120, 120, 120))
+        d.rounded_rectangle([cx - 60, box_top + box_h - 26, cx + 60, box_top + box_h - 16], radius=5, fill=bar)
 
 
 def make_cards(cfg, post, day_dir):
