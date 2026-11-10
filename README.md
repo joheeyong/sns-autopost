@@ -15,7 +15,9 @@
 - **원문 링크**: 구글 뉴스 중간 주소를 실제 기사 주소로 변환
 - **재시도 · 알림**: 일시적 오류는 1분·3분 뒤 재시도, 실패하면 맥 알림. 게시 확정 단계는 중복 게시를 막기 위해 재시도하지 않음
 - **토큰 자동 갱신**: Meta(인스타·스레드) 토큰을 7일마다 갱신해 60일 만료를 막음
+- **반복 방지**: 최근 7일 동안 올린 소식을 Claude에게 알려 줘서, 새로운 진전이 없으면 다시 고르지 않음
 - **하루 한 번**: 같은 날 이미 성공했으면 다시 올리지 않음
+- **키 없는 플랫폼은 건너뜀**: `.env`에 키가 들어간 플랫폼만 올림. 하나도 없으면 Claude를 부르기 전에 종료
 
 ## 설치
 
@@ -51,16 +53,25 @@ cp .env.example .env && chmod 600 .env
 .venv/bin/python autopost.py
 ```
 
+## 테스트
+
+```bash
+.venv/bin/python -m unittest discover tests -v
+```
+
 ## 매일 자동 실행 (오전 8시)
 
 ```bash
 cp com.luxrobo.sns-autopost.plist ~/Library/LaunchAgents/
-launchctl load ~/Library/LaunchAgents/com.luxrobo.sns-autopost.plist
+launchctl bootstrap gui/$(id -u) ~/Library/LaunchAgents/com.luxrobo.sns-autopost.plist
+
+# 지금 바로 한 번 실행해 보기
+launchctl kickstart gui/$(id -u)/com.luxrobo.sns-autopost
 ```
 
 - 실행 기록: `logs/autopost.log`
 - 맥이 잠자기 중이었다면 깨어난 직후 실행, 꺼져 있었다면 그날은 건너뜀
-- 시간 변경: plist의 `Hour`, `Minute` 수정 후 `launchctl unload` → `load`
+- 시간 변경: plist의 `Hour`, `Minute` 수정 후 `launchctl bootout gui/$(id -u)/com.luxrobo.sns-autopost` → 다시 `bootstrap`
 
 ## 설정 (`config.json`)
 

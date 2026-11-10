@@ -173,9 +173,12 @@ def ask_claude(prompt):
     return json.loads(m.group(0))
 
 
-def write_with_claude(cfg, news):
+def write_with_claude(cfg, news, recent=()):
     prompt = PROMPT.format(topic=cfg["topic"], audience=cfg["audience"], tone=cfg["tone"],
                            news=json.dumps(news, ensure_ascii=False, indent=1))
+    if recent:
+        prompt += ("\n최근 7일 동안 이미 올린 소식(같은 사건은 새로운 진전이 없으면 고르지 마라. "
+                   "진전이 있으면 무엇이 새로운지 중심으로 써라):\n- " + "\n- ".join(recent))
     problems = []
     for attempt in (1, 2):  # 검사에 걸리면 이유를 알려 주고 한 번 더 쓰게 함
         p = prompt if not problems else prompt + "\n\n직전 답변의 문제(반드시 고칠 것):\n- " + "\n- ".join(problems)
@@ -338,7 +341,9 @@ def upload_image(path):
     if not key:
         raise RuntimeError("IMGBB_API_KEY 가 없음 (.env 확인)")
     r = requests.post("https://api.imgbb.com/1/upload",
-                      data={"key": key, "image": base64.b64encode(path.read_bytes())}, timeout=60)
+                      # 인스타·스레드가 가져간 뒤엔 필요 없으니 하루 뒤 자동 삭제
+                      data={"key": key, "image": base64.b64encode(path.read_bytes()), "expiration": 86400},
+                      timeout=60)
     check(r)
     return r.json()["data"]["url"]
 
@@ -463,6 +468,23 @@ def refresh_tokens(cfg):
     return t
 
 
+def available_platforms(cfg):
+    """켜져 있어도 키가 비어 있는 플랫폼은 끔 (키를 받는 대로 하나씩 켜지도록)."""
+    p = dict(cfg["platforms"])
+    for name, keys in REQUIRED_KEYS.items():
+        missing = [k for k in keys if not os.environ.get(k)]
+        if p.get(name) and missing:
+            log(f"– {name}: 키 없음({', '.join(missing)}) → 건너뜀")
+            p[name] = False
+    return p
+
+
+def recent_topics(posted, days=7):
+    """최근 며칠 동안 실제로 올린 소식 제목들."""
+    since = (dt.date.today() - dt.timedelta(days=days)).isoformat()
+    return [t for r in posted["runs"] if r.get("ok") and r["date"] >= since for t in r.get("topics", [])]
+
+
 def run(args):
     load_env()
     cfg = load_json(ROOT / "config.json", {})
@@ -470,15 +492,26 @@ def run(args):
     posted = load_json(STATE / "posted.json", {"urls": [], "runs": []})
     today = dt.date.today().isoformat()
 
-    if not args.dry_run and any(r["date"] == today and r.get("ok") for r in posted["runs"]):
-        log("오늘은 이미 올렸음 → 종료")
-        return True
+    p = cfg["platforms"]
+    if not args.dry_run:
+        if any(r["date"] == today and r.get("ok") for r in posted["runs"]):
+            log("오늘은 이미 올렸음 → 종료")
+            return True
+        p = available_platforms(cfg)
+        if not any(p.get(k) for k in REQUIRED_KEYS):  # Claude 를 부르기 전에 종료
+            log("올릴 수 있는 플랫폼이 없음 (.env 키 확인) → 종료")
+            return True
+        if (p.get("instagram") or p.get("threads")) and not os.environ.get("IMGBB_API_KEY"):
+            raise RuntimeError("인스타·스레드 이미지 업로드에 IMGBB_API_KEY 가 필요함")
 
     news = collect_news(cfg, set(posted["urls"]))
     if len(news) < 3:
         raise RuntimeError(f"뉴스 후보가 {len(news)}건뿐이라 게시 불가 (피드 확인 필요)")
 
-    post = add_sources(write_with_claude(cfg, news), news)
+    recent = recent_topics(posted)
+    if recent:
+        log(f"최근 7일 다룬 소식 {len(recent)}개 → 반복 피하도록 전달")
+    post = add_sources(write_with_claude(cfg, news, recent), news)
     post["x_link_real"] = resolve_google_news(post.get("x_link") or post["used_links"][0])
     post["real_links"] = [resolve_google_news(l) for l in post["used_links"]]
     log("글 검사 통과")
@@ -494,18 +527,6 @@ def run(args):
         print(json.dumps(post, ensure_ascii=False, indent=2))
         return True
 
-    # 켜져 있어도 키가 비어 있는 플랫폼은 건너뜀 (키를 받는 대로 하나씩 켜지도록)
-    p = dict(cfg["platforms"])
-    for name, keys in REQUIRED_KEYS.items():
-        missing = [k for k in keys if not os.environ.get(k)]
-        if p.get(name) and missing:
-            log(f"– {name}: 키 없음({', '.join(missing)}) → 건너뜀")
-            p[name] = False
-    if not any(p.get(k) for k in REQUIRED_KEYS):
-        log("올릴 수 있는 플랫폼이 없음 (.env 키 확인) → 종료")
-        return True
-    if (p.get("instagram") or p.get("threads")) and not os.environ.get("IMGBB_API_KEY"):
-        raise RuntimeError("인스타·스레드 이미지 업로드에 IMGBB_API_KEY 가 필요함")
     tokens = refresh_tokens({**cfg, "platforms": p})
     image_url = with_retry("이미지 업로드", lambda: upload_image(card)) \
         if (p.get("instagram") or p.get("threads")) else None
@@ -525,7 +546,8 @@ def run(args):
             log(f"❌ {name} 실패: {e}")
 
     ok = any(r["ok"] for r in results.values())
-    posted["runs"].append({"date": today, "ok": ok, "results": results})
+    posted["runs"].append({"date": today, "ok": ok, "results": results,
+                           "topics": [pt["head"] for pt in post["card_points"]]})
     if ok:
         posted["urls"] = (posted["urls"] + post["used_links"])[-500:]
     save_json(STATE / "posted.json", posted)
