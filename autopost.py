@@ -30,6 +30,11 @@ UA = {"User-Agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7)"}
 IG_API = "https://graph.instagram.com/v23.0"
 THREADS_API = "https://graph.threads.net/v1.0"
 
+REQUIRED_KEYS = {
+    "instagram": ["IG_USER_ID", "IG_ACCESS_TOKEN"],
+    "threads": ["THREADS_USER_ID", "THREADS_ACCESS_TOKEN"],
+    "x": ["X_API_KEY", "X_API_SECRET", "X_ACCESS_TOKEN", "X_ACCESS_SECRET"],
+}
 LIMITS = {"instagram": 2200, "threads": 500, "x_weighted": 280, "hashtags": 30}
 RETRY_WAITS = [60, 180]  # 일시적 오류일 때 1분, 3분 뒤 다시 시도
 
@@ -489,8 +494,19 @@ def run(args):
         print(json.dumps(post, ensure_ascii=False, indent=2))
         return True
 
-    tokens = refresh_tokens(cfg)
-    p = cfg["platforms"]
+    # 켜져 있어도 키가 비어 있는 플랫폼은 건너뜀 (키를 받는 대로 하나씩 켜지도록)
+    p = dict(cfg["platforms"])
+    for name, keys in REQUIRED_KEYS.items():
+        missing = [k for k in keys if not os.environ.get(k)]
+        if p.get(name) and missing:
+            log(f"– {name}: 키 없음({', '.join(missing)}) → 건너뜀")
+            p[name] = False
+    if not any(p.get(k) for k in REQUIRED_KEYS):
+        log("올릴 수 있는 플랫폼이 없음 (.env 키 확인) → 종료")
+        return True
+    if (p.get("instagram") or p.get("threads")) and not os.environ.get("IMGBB_API_KEY"):
+        raise RuntimeError("인스타·스레드 이미지 업로드에 IMGBB_API_KEY 가 필요함")
+    tokens = refresh_tokens({**cfg, "platforms": p})
     image_url = with_retry("이미지 업로드", lambda: upload_image(card)) \
         if (p.get("instagram") or p.get("threads")) else None
 
