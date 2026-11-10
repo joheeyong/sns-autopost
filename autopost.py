@@ -521,6 +521,12 @@ def run(args):
     save_json(day_dir / "post.json", post)
     card = day_dir / "card.jpg"
     make_card(cfg, post, card)
+    try:
+        import preview
+        preview.build(day_dir)
+        log(f"미리보기 저장: {day_dir / 'preview.html'}")
+    except Exception as e:  # 미리보기 실패가 업로드를 막지 않도록
+        log(f"⚠️ 미리보기 생성 실패: {e}")
 
     if args.dry_run:
         log(f"[테스트 모드] 업로드하지 않음. 결과 확인: {day_dir}")

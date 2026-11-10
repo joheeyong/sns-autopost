@@ -51,7 +51,12 @@ cp .env.example .env && chmod 600 .env
 
 # 실제 업로드
 .venv/bin/python autopost.py
+
+# 미리보기만 다시 만들기 (특정 날짜)
+.venv/bin/python preview.py 2026-11-10
 ```
+
+실행할 때마다 `output/날짜/`에 `preview.html`과 `preview.pdf`가 생깁니다. 인스타그램 · 스레드 · X에 올라간 모습처럼 보여 주고, 글자 수와 원문 링크도 함께 보여 줍니다.
 
 ## 테스트
 
