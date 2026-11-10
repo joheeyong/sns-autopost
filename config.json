@@ -1,12 +1,13 @@
 {
-  "topic": "AI·테크 업계 주요 소식",
-  "audience": "IT에 관심 있는 한국 직장인",
-  "tone": "쉽고 담백하게, 과장 없이",
+  "topic": "해외축구 주요 소식 (프리미어리그·라리가·분데스리가·세리에A·챔피언스리그, 한국인 해외파 포함)",
+  "audience": "해외축구를 즐겨 보는 한국 팬",
+  "tone": "쉽고 담백하게, 과장·루머 단정 없이 (이적설은 '보도'라고 명시)",
   "feeds": [
-    "https://news.google.com/rss/search?q=%EC%9D%B8%EA%B3%B5%EC%A7%80%EB%8A%A5+when:1d&hl=ko&gl=KR&ceid=KR:ko",
-    "https://news.google.com/rss/search?q=AI+when:1d&hl=en-US&gl=US&ceid=US:en"
+    "https://news.google.com/rss/search?q=%ED%95%B4%EC%99%B8%EC%B6%95%EA%B5%AC+when:1d&hl=ko&gl=KR&ceid=KR:ko",
+    "https://news.google.com/rss/search?q=%ED%94%84%EB%A6%AC%EB%AF%B8%EC%96%B4%EB%A6%AC%EA%B7%B8+OR+%EC%B1%94%ED%94%BC%EC%96%B8%EC%8A%A4%EB%A6%AC%EA%B7%B8+when:1d&hl=ko&gl=KR&ceid=KR:ko",
+    "https://feeds.bbci.co.uk/sport/football/rss.xml"
   ],
-  "max_candidates": 25,
+  "max_candidates": 30,
   "platforms": {
     "instagram": true,
     "threads": true,
@@ -14,8 +15,9 @@
   },
   "card": {
     "brand": "@my_account",
-    "bg": "#0F172A",
-    "accent": "#38BDF8",
-    "text": "#F8FAFC"
+    "bg": "#0B3D2E",
+    "accent": "#A3E635",
+    "text": "#F8FAFC",
+    "muted": "#A7C4B5"
   }
 }
