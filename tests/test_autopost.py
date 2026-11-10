@@ -69,6 +69,15 @@ class Validate(unittest.TestCase):
         probs = a.validate(good_post(card_points=[{"head": "하나", "desc": "둘"}]), NEWS)
         self.assertTrue(any("card_points" in p for p in probs))
 
+    def test_stat_from_article_passes(self):
+        pts = [{"head": "h", "desc": "d", "stat": "60분"}] + [{"head": "h", "desc": "d"}] * 2
+        self.assertEqual(a.validate(good_post(card_points=pts), NEWS), [])
+
+    def test_made_up_stat_rejected(self):
+        pts = [{"head": "h", "desc": "d", "stat": "99골"}] + [{"head": "h", "desc": "d"}] * 2
+        probs = a.validate(good_post(card_points=pts), NEWS)
+        self.assertTrue(any("지어낸 숫자" in p for p in probs))
+
     def test_empty_field_rejected(self):
         self.assertIn("instagram 가 비어 있음", a.validate(good_post(instagram=""), NEWS))
 
@@ -96,6 +105,21 @@ class Wrap(unittest.TestCase):
         self.assertGreater(len(lines), 1)
         self.assertTrue(all(d.textlength(l, font=f) <= 400 for l in lines))
         self.assertEqual(" ".join(lines), text)  # 단어가 잘리지 않음
+
+
+class Cards(unittest.TestCase):
+    def test_carousel_four_images(self):
+        import json, tempfile
+        cfg = json.loads((Path(a.ROOT) / "config.json").read_text())
+        pts = [{"head": "맨유 18위", "desc": "설명", "league": "EPL", "stat": "18위",
+                "stat_label": "순위", "color": "#DA291C"},
+               {"head": "숫자 없는 소식", "desc": "설명", "color": "잘못된색"},
+               {"head": "긴 숫자", "desc": "설명", "stat": "1만9806명"}]
+        with tempfile.TemporaryDirectory() as d:
+            paths = a.make_cards(cfg, good_post(card_points=pts, sources=["A"]), Path(d))
+            self.assertEqual(len(paths), 4)
+            for p in paths:
+                self.assertEqual(Image.open(p).size, (1080, 1350))
 
 
 class Platforms(unittest.TestCase):

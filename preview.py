@@ -41,7 +41,11 @@ def build(day_dir: Path):
     post = json.loads((day_dir / "post.json").read_text())
     cfg = json.loads((ROOT / "config.json").read_text())
     brand = cfg["card"]["brand"].lstrip("@")
-    img = "data:image/jpeg;base64," + base64.b64encode((day_dir / "card.jpg").read_bytes()).decode()
+    cards = [day_dir / "card.jpg"] + sorted(day_dir.glob("card_*.jpg"))
+    imgs = ["data:image/jpeg;base64," + base64.b64encode(c.read_bytes()).decode() for c in cards]
+    img = imgs[0]
+    slides = "".join(f'<img src="{u}" alt="카드 {i}/{len(imgs)}">' for i, u in enumerate(imgs, 1))
+    dots = "".join(f'<i class="{"on" if i == 0 else ""}"></i>' for i in range(len(imgs)))
     date = day_dir.name
     x_text = post["x"].strip()
     x_link = post.get("x_link_real") or ""
@@ -91,6 +95,15 @@ header p {{ margin:0; color:var(--sub); font-size:14px }}
 .body {{ padding:12px 14px 16px; font-size:14px }}
 .tag {{ color:var(--tag) }}
 .ig-actions {{ padding:10px 14px 0; font-size:20px; letter-spacing:8px }}
+.carousel {{ display:flex; overflow-x:auto; scroll-snap-type:x mandatory; scrollbar-width:none }}
+.carousel::-webkit-scrollbar {{ display:none }}
+.carousel img {{ flex:0 0 100%; width:100%; scroll-snap-align:start; display:block }}
+.ig-actions {{ position:relative }}
+.dots {{ position:absolute; left:50%; top:50%; transform:translate(-50%,-50%); letter-spacing:0; display:flex; gap:4px }}
+.dots i {{ width:6px; height:6px; border-radius:50%; background:var(--line); display:block }}
+.dots i.on {{ background:var(--ig) }}
+.strip {{ display:flex; gap:6px; overflow-x:auto; padding:0 14px 14px }}
+.strip img {{ height:220px; border-radius:10px; flex:none }}
 .th .body {{ padding-top:0 }}
 .th .photo {{ border-radius:10px; width:calc(100% - 28px); margin:10px 14px 14px }}
 .linkcard {{ margin:12px 0 0; border:1px solid var(--line); border-radius:14px; overflow:hidden }}
@@ -110,14 +123,17 @@ a {{ color:var(--x) }}
   .col {{ break-before:page; padding-top:8px }}
   .col:first-child {{ break-before:auto }}
   .th, .col:last-child {{ break-inside:avoid }}
-  .th .photo {{ width:62%; margin:6px auto 14px }}
+  .carousel {{ display:grid; grid-template-columns:1fr 1fr; gap:4px; overflow:visible }}
+  .dots {{ display:none }}
+  .strip {{ display:grid; grid-template-columns:repeat(4,1fr); overflow:visible }}
+  .strip img {{ height:auto; width:100% }}
   section.info {{ margin-top:20px }}
   section.info .card {{ break-inside:avoid }}
 }}
 </style></head><body>
 <header>
   <h1>게시물 미리보기 · {date}</h1>
-  <p>매일 오전 8시 자동 실행 때 올라갈 내용과 같은 형식입니다. 출처: {esc(", ".join(post.get("sources", [])))}</p>
+  <p>매일 오전 8시 자동 실행 때 올라갈 내용과 같은 형식입니다. 인스타 이미지는 옆으로 넘겨 볼 수 있습니다. 출처: {esc(", ".join(post.get("sources", [])))}</p>
 </header>
 
 <div class="grid">
@@ -125,8 +141,8 @@ a {{ color:var(--x) }}
     <h2>Instagram <span class="meter">{gauge(len(post["instagram"]), LIMITS["instagram"])}</span></h2>
     <div class="card">
       <div class="top"><div class="avatar"></div><div class="name">{esc(brand)}</div></div>
-      <img class="photo" src="{img}" alt="오늘의 카드 이미지">
-      <div class="ig-actions">♡ ◯ ➤</div>
+      <div class="carousel" id="ig">{slides}</div>
+      <div class="ig-actions">♡ ◯ ➤ <span class="dots">{dots}</span></div>
       <div class="body"><b>{esc(brand)}</b> {rich(post["instagram"])}</div>
     </div>
   </div>
@@ -136,7 +152,7 @@ a {{ color:var(--x) }}
     <div class="card">
       <div class="top"><div class="avatar"></div><div class="name">{esc(brand)} <small>· 방금</small></div></div>
       <div class="body">{rich(post["threads"])}</div>
-      <img class="photo" src="{img}" alt="오늘의 카드 이미지">
+      <div class="strip">{slides}</div>
     </div>
   </div>
 
@@ -155,6 +171,10 @@ a {{ color:var(--x) }}
   <h3>오늘 고른 기사 (원문 링크)</h3>
   <ul>{links}</ul>
 </div></section>
+<script>
+const c=document.getElementById('ig'), d=[...document.querySelectorAll('.dots i')];
+c && c.addEventListener('scroll',()=>{{const i=Math.round(c.scrollLeft/c.clientWidth);d.forEach((x,j)=>x.classList.toggle('on',i===j))}});
+</script>
 </body></html>"""
     out = day_dir / "preview.html"
     out.write_text(page)

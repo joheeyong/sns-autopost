@@ -140,7 +140,11 @@ PROMPT = """너는 SNS 뉴스 큐레이터다. 아래 오늘의 뉴스 후보 �
 {{
   "card_title": "카드 맨 위 제목 (16자 이내)",
   "card_points": [
-    {{"head": "소식 한 줄 요약 (24자 이내)", "desc": "보충 설명 한 줄 (40자 이내)"}}
+    {{"head": "소식 한 줄 요약 (24자 이내)", "desc": "보충 설명 한 줄 (40자 이내)",
+      "league": "EPL / 라리가 / 분데스리가 / 세리에A / 리그1 / UCL / FA컵 / 대표팀 / 기타 중 하나",
+      "stat": "카드에 크게 보여 줄 핵심 숫자 하나 (예: '18위', '1-2', '5골', '60분'). 기사에 나온 숫자만, 6자 이내, 없으면 빈 문자열",
+      "stat_label": "그 숫자가 뭔지 짧은 설명 (14자 이내, 예: '프리미어리그 순위')",
+      "color": "이 소식 중심 팀의 대표색 hex (예: 맨유 #DA291C, 아스널 #EF0107, 바르사 #A50044). 팀이 없으면 #1E3A8A"}}
   ],
   "instagram": "인스타 캡션 (소식 3개 요약, 1500자 이내, 링크 금지, 해시태그 5~8개는 맨 마지막 줄에만)",
   "threads": "스레드 글 (380자 이내, 소식 3개 요약, 해시태그·링크 금지)",
@@ -236,6 +240,17 @@ def validate(post, news):
     bad = [l for l in post["used_links"] + extra + [post.get("x_link", "")] if l and l not in links]
     if bad:
         probs.append(f"후보에 없는 링크 {len(bad)}개 (지어낸 링크)")
+    texts = {n["link"]: n["title"] + " " + n["summary"] for n in news}
+    ref_text = " ".join(texts.get(l, "") for l in post["used_links"] + extra).replace(",", "").replace(" ", "")
+    for i, p in enumerate(pts if isinstance(pts, list) else [], 1):
+        if not isinstance(p, dict):
+            continue
+        stat = str(p.get("stat") or "")
+        if len(stat) > 8:
+            probs.append(f"card_points {i}번 stat 이 너무 김")
+        nums = re.findall(r"\d+", stat.replace(",", ""))
+        if any(n not in ref_text for n in nums):
+            probs.append(f"card_points {i}번 stat '{stat}' 의 숫자가 고른 기사에 없음 (지어낸 숫자)")
     if len(set(post["used_links"])) != 3:
         probs.append("used_links 는 서로 다른 3개여야 함")
     return probs
@@ -285,13 +300,67 @@ def wrap(draw, text, font, width):
     return lines
 
 
+W, H, P = 1080, 1350, 90
+
+
+def font(size, idx=2):
+    return ImageFont.truetype(FONT_PATH, size, index=idx)
+
+
+def hex_rgb(h, default=(30, 58, 138)):
+    m = re.fullmatch(r"#?([0-9a-fA-F]{6})", str(h or "").strip())
+    return tuple(int(m.group(1)[i:i + 2], 16) for i in (0, 2, 4)) if m else default
+
+
+def mix(a, b, t):
+    """색 a 와 b 를 t 비율로 섞음 (t=0 이면 a, 1 이면 b)."""
+    return tuple(round(x + (y - x) * t) for x, y in zip(a, b))
+
+
+def gradient(top, bottom):
+    img = Image.new("RGB", (W, H))
+    d = ImageDraw.Draw(img)
+    for y in range(H):
+        d.line([(0, y), (W, y)], fill=mix(top, bottom, y / H))
+    return img
+
+
+def draw_pitch(img, alpha=26):
+    """배경에 축구장 라인을 은은하게."""
+    layer = Image.new("RGBA", img.size, (0, 0, 0, 0))
+    d = ImageDraw.Draw(layer)
+    col, w = (255, 255, 255, alpha), 4
+    m = 40
+    d.rectangle([m, m, W - m, H - m], outline=col, width=w)
+    d.line([m, H // 2, W - m, H // 2], fill=col, width=w)
+    d.ellipse([W // 2 - 150, H // 2 - 150, W // 2 + 150, H // 2 + 150], outline=col, width=w)
+    d.ellipse([W // 2 - 9, H // 2 - 9, W // 2 + 9, H // 2 + 9], fill=col)
+    for top in (True, False):
+        y0, y1, y2 = (m, m + 230, m + 90) if top else (H - m, H - m - 230, H - m - 90)
+        d.rectangle([W // 2 - 300, min(y0, y1), W // 2 + 300, max(y0, y1)], outline=col, width=w)
+        d.rectangle([W // 2 - 130, min(y0, y2), W // 2 + 130, max(y0, y2)], outline=col, width=w)
+    out = Image.alpha_composite(img.convert("RGBA"), layer)
+    return out.convert("RGB")
+
+
+def footer(d, c, post, page=None):
+    f_foot = font(32)
+    d.line([P, H - P - 50, W - P, H - P - 50], fill=c["muted"], width=1)
+    d.text((P, H - P - 32), c["brand"], font=f_foot, fill=c["accent"])
+    right = page or ""
+    if not page and post.get("sources"):
+        right = "출처 " + " · ".join(post["sources"])
+        while d.textlength(right, font=f_foot) > W - 2 * P - 300 and " · " in right:
+            right = right.rsplit(" · ", 1)[0] + " 외"
+    d.text((W - P - d.textlength(right, font=f_foot), H - P - 32), right, font=f_foot, fill=c["muted"])
+
+
 def make_card(cfg, post, path):
+    """1장: 표지 (오늘의 소식 3개 요약)."""
     c = cfg["card"]
-    W, H, P = 1080, 1350, 90
-    font = lambda size, idx: ImageFont.truetype(FONT_PATH, size, index=idx)
     f_date, f_title, f_num = font(38, 2), font(84, 6), font(80, 6)
-    f_head, f_desc, f_foot = font(50, 6), font(38, 2), font(32, 2)
-    img = Image.new("RGB", (W, H), c["bg"])
+    f_head, f_desc = font(50, 6), font(38, 2)
+    img = draw_pitch(Image.new("RGB", (W, H), c["bg"]), alpha=16)
     d = ImageDraw.Draw(img)
     tx = P + 140                  # 소식 글자가 시작하는 x
     tw = W - tx - P
@@ -325,15 +394,79 @@ def make_card(cfg, post, path):
             ly += 54
         y = max(ly, y + 110) + gap
 
-    d.line([P, H - P - 50, W - P, H - P - 50], fill=c["muted"], width=1)
-    d.text((P, H - P - 32), c["brand"], font=f_foot, fill=c["accent"])
-    if post.get("sources"):
-        src = "출처 " + " · ".join(post["sources"])
-        while d.textlength(src, font=f_foot) > W - 2 * P - 300 and " · " in src:
-            src = src.rsplit(" · ", 1)[0] + " 외"
-        d.text((W - P - d.textlength(src, font=f_foot), H - P - 32), src, font=f_foot, fill=c["muted"])
+    footer(d, c, post)
+    hint = "넘겨서 자세히 보기 →"
+    f_hint = font(34, 4)
+    d.text((W - P - d.textlength(hint, font=f_hint), P + 2), hint, font=f_hint, fill=c["accent"])
     img.save(path, "JPEG", quality=92)
     log(f"카드 이미지 저장: {path}")
+
+
+def make_story_card(cfg, post, i, path):
+    """2~4장: 소식 하나를 크게 (팀 색 배경 + 핵심 숫자)."""
+    c = cfg["card"]
+    pt = post["card_points"][i - 1]
+    team = hex_rgb(pt.get("color"))
+    base = (8, 12, 18)
+    img = draw_pitch(gradient(mix(team, base, 0.35), mix(team, base, 0.85)), alpha=22)
+    d = ImageDraw.Draw(img)
+    accent = hex_rgb(c["accent"])
+    white = (248, 250, 252)
+
+    # 위: 번호 + 리그 태그
+    y = P
+    f_no, f_tag = font(40, 6), font(34, 6)
+    d.text((P, y), f"{i:02d} / 03", font=f_no, fill=accent)
+    tag = (pt.get("league") or "").strip()
+    if tag:
+        tw = d.textlength(tag, font=f_tag)
+        x1 = W - P
+        d.rounded_rectangle([x1 - tw - 48, y - 4, x1, y + 52], radius=28, fill=accent)
+        d.text((x1 - tw - 24, y + 4), tag, font=f_tag, fill=base)
+
+    # 가운데: 핵심 숫자 + 제목 + 설명 (높이를 먼저 재서 세로 가운데 배치)
+    stat = str(pt.get("stat") or "").strip()
+    big = not stat  # 숫자가 없으면 제목을 크게
+    f_head, f_desc, f_label = font(96 if big else 68, 6), font(48 if big else 44, 2), font(42, 4)
+    lh_head, lh_desc = (122, 68) if big else (88, 62)
+    size = 300
+    while stat and size > 120 and d.textlength(stat, font=font(size, 6)) > W - 2 * P:
+        size -= 10
+    heads = wrap(d, pt["head"], f_head, W - 2 * P)
+    descs = wrap(d, pt["desc"], f_desc, W - 2 * P)
+    stat_h = (int(size * 1.08) + (90 if pt.get("stat_label") else 0)) if stat else 0
+    total = stat_h + 68 + len(heads) * lh_head + 16 + len(descs) * lh_desc
+    top, bottom = 200, H - P - 90
+    y = top + max(0, (bottom - top - total) // 2)
+
+    if stat:
+        d.text((P - 6, y), stat, font=font(size, 6), fill=white)
+        y += int(size * 1.08)
+        if pt.get("stat_label"):
+            d.text((P, y), pt["stat_label"], font=f_label, fill=accent)
+            y += 90
+    d.rectangle([P, y, P + 120, y + 8], fill=accent)
+    y += 68
+    for line in heads:
+        d.text((P, y), line, font=f_head, fill=white)
+        y += lh_head
+    y += 16
+    for line in descs:
+        d.text((P, y), line, font=f_desc, fill=mix(white, team, 0.25))
+        y += lh_desc
+
+    footer(d, c, post, page=f"{i + 1} / 4")
+    img.save(path, "JPEG", quality=92)
+
+
+def make_cards(cfg, post, day_dir):
+    """표지 + 소식 3장 = 캐러셀 4장."""
+    paths = [day_dir / "card.jpg"] + [day_dir / f"card_{i}.jpg" for i in (1, 2, 3)]
+    make_card(cfg, post, paths[0])
+    for i in (1, 2, 3):
+        make_story_card(cfg, post, i, paths[i])
+    log(f"캐러셀 이미지 {len(paths)}장 저장")
+    return paths
 
 
 def upload_image(path):
@@ -394,18 +527,40 @@ def meta_wait(api, container_id, token):
     raise Retryable("미디어 처리 시간 초과")
 
 
-def post_instagram(post, image_url, tokens):
+def post_instagram(post, image_urls, tokens):
     uid, tok = os.environ["IG_USER_ID"], tokens["ig"]
-    c = call("POST", f"{IG_API}/{uid}/media",
-             data={"image_url": image_url, "caption": post["instagram"], "access_token": tok})
+    if len(image_urls) == 1:
+        c = call("POST", f"{IG_API}/{uid}/media",
+                 data={"image_url": image_urls[0], "caption": post["instagram"], "access_token": tok})
+    else:  # 캐러셀: 장마다 컨테이너를 만든 뒤 하나로 묶음
+        kids = []
+        for u in image_urls:
+            k = call("POST", f"{IG_API}/{uid}/media",
+                     data={"image_url": u, "is_carousel_item": "true", "access_token": tok})
+            meta_wait(IG_API, k["id"], tok)
+            kids.append(k["id"])
+        c = call("POST", f"{IG_API}/{uid}/media", data={
+            "media_type": "CAROUSEL", "children": ",".join(kids),
+            "caption": post["instagram"], "access_token": tok})
     meta_wait(IG_API, c["id"], tok)
     return publish(f"{IG_API}/{uid}/media_publish", data={"creation_id": c["id"], "access_token": tok})["id"]
 
 
-def post_threads(post, image_url, tokens):
+def post_threads(post, image_urls, tokens):
     uid, tok = os.environ["THREADS_USER_ID"], tokens["threads"]
     data = {"text": post["threads"], "access_token": tok}
-    data.update({"media_type": "IMAGE", "image_url": image_url} if image_url else {"media_type": "TEXT"})
+    if not image_urls:
+        data["media_type"] = "TEXT"
+    elif len(image_urls) == 1:
+        data.update(media_type="IMAGE", image_url=image_urls[0])
+    else:  # 캐러셀
+        kids = []
+        for u in image_urls:
+            k = call("POST", f"{THREADS_API}/{uid}/threads", data={
+                "media_type": "IMAGE", "image_url": u, "is_carousel_item": "true", "access_token": tok})
+            meta_wait(THREADS_API, k["id"], tok)
+            kids.append(k["id"])
+        data.update(media_type="CAROUSEL", children=",".join(kids))
     c = call("POST", f"{THREADS_API}/{uid}/threads", data=data)
     meta_wait(THREADS_API, c["id"], tok)
     return publish(f"{THREADS_API}/{uid}/threads_publish",
@@ -519,8 +674,7 @@ def run(args):
     day_dir = OUTPUT / today
     day_dir.mkdir(parents=True, exist_ok=True)
     save_json(day_dir / "post.json", post)
-    card = day_dir / "card.jpg"
-    make_card(cfg, post, card)
+    cards = make_cards(cfg, post, day_dir)
     try:
         import preview
         preview.build(day_dir)
@@ -534,12 +688,12 @@ def run(args):
         return True
 
     tokens = refresh_tokens({**cfg, "platforms": p})
-    image_url = with_retry("이미지 업로드", lambda: upload_image(card)) \
-        if (p.get("instagram") or p.get("threads")) else None
+    image_urls = [with_retry("이미지 업로드", lambda c=c: upload_image(c)) for c in cards] \
+        if (p.get("instagram") or p.get("threads")) else []
 
     results = {}
-    jobs = [("instagram", lambda: post_instagram(post, image_url, tokens)),
-            ("threads", lambda: post_threads(post, image_url, tokens)),
+    jobs = [("instagram", lambda: post_instagram(post, image_urls, tokens)),
+            ("threads", lambda: post_threads(post, image_urls, tokens)),
             ("x", lambda: post_x(post))]
     for name, fn in jobs:
         if not p.get(name):
