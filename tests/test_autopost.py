@@ -142,6 +142,24 @@ class Platforms(unittest.TestCase):
             p = a.available_platforms(cfg)
         self.assertEqual(p, {"instagram": False, "threads": False, "x": True})
 
+    def test_manual_x_needs_no_keys(self):
+        cfg = {"x_mode": "manual", "platforms": {"instagram": True, "threads": True, "x": True}}
+        with mock.patch.dict(os.environ, {}, clear=True):
+            self.assertEqual(a.available_platforms(cfg), {"instagram": False, "threads": False, "x": True})
+
+    def test_intent_url_has_text_and_link(self):
+        from urllib.parse import urlparse, parse_qs
+        post = good_post(x="이강인 60분 #이강인", x_link_real="https://news.example/a?b=1&c=2")
+        q = parse_qs(urlparse(a.x_intent_url(post)).query)
+        self.assertEqual(q["text"], ["이강인 60분 #이강인\nhttps://news.example/a?b=1&c=2"])
+
+    def test_api_without_credits_falls_back_to_compose(self):
+        cfg = {"x_mode": "api"}
+        with mock.patch.object(a, "post_x", side_effect=a.XNoCredits("402")), \
+             mock.patch.object(a, "open_x_compose", return_value="manual") as op:
+            self.assertEqual(a.post_x_or_open(cfg, good_post(), None), "manual")
+        op.assert_called_once()
+
     def test_recent_topics_only_successful_last_week(self):
         today = dt.date.today()
         d = lambda n: (today - dt.timedelta(days=n)).isoformat()

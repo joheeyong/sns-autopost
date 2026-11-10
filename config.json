@@ -8,6 +8,7 @@
     "https://feeds.bbci.co.uk/sport/football/rss.xml"
   ],
   "max_candidates": 30,
+  "x_mode": "manual",
   "platforms": {
     "instagram": true,
     "threads": true,

@@ -11,6 +11,7 @@
 - **뉴스 큐레이션**: 구글 뉴스 · BBC 피드에서 후보를 모아 Claude가 중요한 소식 3개를 고름. 이미 올린 기사는 제외
 - **캐러셀 이미지 4장**: 표지(소식 3개 요약) + 소식별 카드 3장. 소식 카드는 팀 대표색 배경, 축구장 라인, 리그 태그, 기사 속 핵심 숫자를 크게 표시. 경기 결과는 스코어보드로 표시. 숫자·스코어가 실제 기사에 있는지 검사
 - **플랫폼별 글**: 인스타 캡션(해시태그 포함), 스레드(500자 이내), X(가중치 280자 이내 + 원문 링크)
+- **X 반자동(기본)**: X API는 글마다 요금이 붙어서, 기본값은 글과 링크가 채워진 X 글쓰기 창을 브라우저로 열고 알림을 띄우는 방식. 게시 버튼만 누르면 됨. `config.json`의 `"x_mode": "api"`로 바꾸면 API로 자동 게시하고, 크레딧이 없으면(402) 글쓰기 창 열기로 자동 전환
 - **업로드 전 검사**: 글자 수, 빈 항목, 본문 링크, 후보에 없는 링크(지어낸 링크)를 검사하고, 걸리면 이유를 알려 주고 한 번 더 쓰게 함
 - **출처 자동 표기**: 참고한 기사의 언론사 이름을 프로그램이 직접 붙임
 - **원문 링크**: 구글 뉴스 중간 주소를 실제 기사 주소로 변환
@@ -38,7 +39,7 @@ cp .env.example .env && chmod 600 .env
 |---|---|
 | `CLAUDE_CODE_OAUTH_TOKEN` | 터미널에서 `claude setup-token` (1년 유효) |
 | `IMGBB_API_KEY` | https://api.imgbb.com 에서 가입 후 "Get API key" |
-| `X_API_KEY` 외 3개 | https://developer.x.com → 앱 생성 → 권한 **Read and Write** → Keys and tokens |
+| `X_API_KEY` 외 3개 | `x_mode: "api"`일 때만 필요. https://developer.x.com → 앱 생성 → 권한 **Read and Write** → Keys and tokens → 크레딧 충전 |
 | `IG_USER_ID`, `IG_ACCESS_TOKEN` | Meta 개발자 앱 → Instagram API(Instagram 로그인 방식) → 비즈니스/크리에이터 계정 연결 |
 | `THREADS_USER_ID`, `THREADS_ACCESS_TOKEN` | Meta 개발자 앱 → Threads API 사용 사례 추가 |
 
@@ -86,4 +87,5 @@ launchctl kickstart gui/$(id -u)/com.luxrobo.sns-autopost
 | `topic`, `audience`, `tone` | Claude에게 주는 주제 · 독자 · 말투 |
 | `feeds` | 뉴스 RSS 주소 목록 |
 | `platforms` | 플랫폼별 켜기/끄기 |
+| `x_mode` | `manual`(글쓰기 창만 열기, 무료) / `api`(자동 게시, 크레딧 필요) |
 | `card` | 카드의 계정 이름(`brand`)과 색상 |

@@ -36,7 +36,7 @@ def gauge(n, limit):
 
 def build(day_dir: Path):
     sys.path.insert(0, str(ROOT))
-    from autopost import x_weighted_len, LIMITS
+    from autopost import x_weighted_len, x_intent_url, LIMITS
 
     post = json.loads((day_dir / "post.json").read_text())
     cfg = json.loads((ROOT / "config.json").read_text())
@@ -115,6 +115,9 @@ section.info h3 {{ margin:0 0 8px; font-size:15px }}
 section.info ul {{ margin:0; padding-left:0; list-style:none; font-size:13px }}
 section.info li {{ margin:0 0 10px; overflow-wrap:anywhere }}
 a {{ color:var(--x) }}
+.compose {{ display:inline-block; margin-top:12px; padding:8px 14px; border-radius:999px;
+  background:var(--x); color:#fff; text-decoration:none; font-weight:600; font-size:13px }}
+@media print {{ .compose {{ display:none }} }}
 @page {{ size:A4; margin:14mm }}
 @media print {{
   body {{ background:#fff }}
@@ -162,6 +165,7 @@ a {{ color:var(--x) }}
       <div class="top"><div class="avatar"></div><div class="name">{esc(brand)} <small>@{esc(brand)} · 방금</small></div></div>
       <div class="body">{rich(x_text)}<br><a href="{esc(x_link)}">{esc(x_link[:60])}{"…" if len(x_link) > 60 else ""}</a>
         <div class="linkcard"><div><b>{esc(domain)}</b>링크 미리보기는 X가 기사 페이지에서 가져와 표시합니다</div></div>
+        <a class="compose" href="{esc(x_intent_url(post))}">X 글쓰기 창 열기 →</a>
       </div>
     </div>
   </div>
@@ -181,7 +185,7 @@ c && c.addEventListener('scroll',()=>{{const i=Math.round(c.scrollLeft/c.clientW
     pdf = day_dir / "preview.pdf"
     if Path(CHROME).exists():
         subprocess.run([CHROME, "--headless=new", "--disable-gpu", "--no-pdf-header-footer",
-                        f"--print-to-pdf={pdf}", out.as_uri()], capture_output=True, timeout=120)
+                        f"--print-to-pdf={pdf}", out.resolve().as_uri()], capture_output=True, timeout=120)
     return out, (pdf if pdf.exists() else None)
 
 

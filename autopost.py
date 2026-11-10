@@ -533,6 +533,10 @@ class Retryable(Exception):
     """잠시 뒤 다시 시도하면 될 수 있는 오류 (네트워크, 서버 5xx, 429)."""
 
 
+class XNoCredits(Exception):
+    """X API 크레딧 소진(402)."""
+
+
 class NoRetry(Exception):
     """다시 시도하면 안 되는 오류 (실제로는 올라갔을 수 있어서 중복 위험)."""
 
@@ -614,21 +618,56 @@ def post_threads(post, image_urls, tokens):
                    data={"creation_id": c["id"], "access_token": tok})["id"]
 
 
+def x_text(post):
+    return post["x"].strip() + ("\n" + post["x_link_real"] if post.get("x_link_real") else "")
+
+
+def x_intent_url(post):
+    """X 공식 글쓰기 주소 — 열면 글과 링크가 채워진 글쓰기 창이 뜸."""
+    from urllib.parse import quote
+    return "https://x.com/intent/post?text=" + quote(x_text(post), safe="")
+
+
+def open_x_compose(post, day_dir=None):
+    """반자동: 글쓰기 창을 브라우저로 열고 알림. 사용자가 게시 버튼만 누르면 됨."""
+    url = x_intent_url(post)
+    if day_dir:
+        (day_dir / "x_compose.url").write_text(f"[InternetShortcut]\nURL={url}\n")
+    chrome = "/Applications/Google Chrome.app"
+    cmd = ["open", "-a", chrome, url] if Path(chrome).exists() else ["open", url]
+    subprocess.run(cmd, capture_output=True)
+    notify("X 글 준비 완료", "열린 X 창에서 '게시하기'만 눌러 주세요")
+    return "manual"
+
+
 def post_x(post):
     import tweepy
     client = tweepy.Client(consumer_key=os.environ["X_API_KEY"],
                            consumer_secret=os.environ["X_API_SECRET"],
                            access_token=os.environ["X_ACCESS_TOKEN"],
                            access_token_secret=os.environ["X_ACCESS_SECRET"])
-    text = post["x"].strip() + ("\n" + post["x_link_real"] if post.get("x_link_real") else "")
     try:
-        return client.create_tweet(text=text).data["id"]
+        return client.create_tweet(text=x_text(post)).data["id"]
     except tweepy.errors.TooManyRequests as e:
         raise Retryable(str(e))
     except tweepy.errors.TwitterServerError as e:
         raise NoRetry(f"X 서버 오류 — 실제 게시 여부를 직접 확인하세요: {e}")
+    except tweepy.errors.HTTPException as e:
+        if getattr(e.response, "status_code", None) == 402:  # 크레딧 없음 → 반자동으로 전환
+            raise XNoCredits(str(e))
+        raise
     except requests.ConnectionError as e:
         raise NoRetry(f"X 연결 끊김 — 실제 게시 여부를 직접 확인하세요: {e}")
+
+
+def post_x_or_open(cfg, post, day_dir):
+    if x_mode(cfg) == "manual":
+        return open_x_compose(post, day_dir)
+    try:
+        return with_retry("x", lambda: post_x(post))
+    except XNoCredits as e:
+        log(f"X 크레딧 없음 → 글쓰기 창 열기로 전환: {e}")
+        return open_x_compose(post, day_dir)
 
 
 def with_retry(name, fn):
@@ -670,10 +709,17 @@ def refresh_tokens(cfg):
     return t
 
 
+def x_mode(cfg):
+    """manual: 글쓰기 창만 열어 줌(무료) / api: API로 자동 게시, 크레딧 없으면 manual로 전환."""
+    return cfg.get("x_mode", "manual")
+
+
 def available_platforms(cfg):
     """켜져 있어도 키가 비어 있는 플랫폼은 끔 (키를 받는 대로 하나씩 켜지도록)."""
     p = dict(cfg["platforms"])
     for name, keys in REQUIRED_KEYS.items():
+        if name == "x" and x_mode(cfg) == "manual":
+            continue  # 반자동은 키가 필요 없음
         missing = [k for k in keys if not os.environ.get(k)]
         if p.get(name) and missing:
             log(f"– {name}: 키 없음({', '.join(missing)}) → 건너뜀")
@@ -741,13 +787,14 @@ def run(args):
     results = {}
     jobs = [("instagram", lambda: post_instagram(post, image_urls, tokens)),
             ("threads", lambda: post_threads(post, image_urls, tokens)),
-            ("x", lambda: post_x(post))]
+            ("x", lambda: post_x_or_open(cfg, post, day_dir))]
     for name, fn in jobs:
         if not p.get(name):
             continue
         try:
-            results[name] = {"ok": True, "id": with_retry(name, fn)}
-            log(f"✅ {name} 업로드 성공")
+            rid = fn() if name == "x" else with_retry(name, fn)
+            results[name] = {"ok": True, "id": rid}
+            log(f"✅ {name} " + ("글쓰기 창 열림 (게시 버튼은 직접)" if rid == "manual" else "업로드 성공"))
         except Exception as e:  # 한 곳이 실패해도 나머지는 계속
             results[name] = {"ok": False, "error": f"{type(e).__name__}: {e}"}
             log(f"❌ {name} 실패: {e}")
