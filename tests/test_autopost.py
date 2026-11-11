@@ -134,6 +134,25 @@ class Cards(unittest.TestCase):
                 self.assertEqual(Image.open(p).size, (1080, 1350))
 
 
+class XBrowser(unittest.TestCase):
+    def test_click_success(self):
+        seq = iter(["wait", "clicked", "false", "true"])
+        with mock.patch.object(a, "chrome_js", side_effect=lambda js: next(seq)), mock.patch("time.sleep"):
+            self.assertTrue(a.click_x_post())
+
+    def test_logged_out_raises(self):
+        with mock.patch.object(a, "chrome_js", return_value="login"), mock.patch("time.sleep"):
+            with self.assertRaises(RuntimeError):
+                a.click_x_post()
+
+    def test_failure_notifies(self):
+        with mock.patch.object(a, "open_x_compose"), mock.patch.object(a, "notify") as n, \
+             mock.patch.object(a, "click_x_post", side_effect=RuntimeError("x")):
+            with self.assertRaises(RuntimeError):
+                a.post_x_browser({}, good_post(), None)
+        n.assert_called_once()
+
+
 class Platforms(unittest.TestCase):
     def test_missing_keys_skipped(self):
         cfg = {"platforms": {"instagram": True, "threads": True, "x": True}}
@@ -156,7 +175,7 @@ class Platforms(unittest.TestCase):
     def test_api_without_credits_falls_back_to_compose(self):
         cfg = {"x_mode": "api"}
         with mock.patch.object(a, "post_x", side_effect=a.XNoCredits("402")), \
-             mock.patch.object(a, "open_x_compose", return_value="manual") as op:
+             mock.patch.object(a, "post_x_browser", return_value="manual") as op:
             self.assertEqual(a.post_x_or_open(cfg, good_post(), None), "manual")
         op.assert_called_once()
 

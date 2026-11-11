@@ -636,8 +636,65 @@ def open_x_compose(post, day_dir=None):
     chrome = "/Applications/Google Chrome.app"
     cmd = ["open", "-a", chrome, url] if Path(chrome).exists() else ["open", url]
     subprocess.run(cmd, capture_output=True)
-    notify("X 글 준비 완료", "열린 X 창에서 '게시하기'만 눌러 주세요")
     return "manual"
+
+
+def chrome_js(js):
+    """Chrome 앞 창의 현재 탭에서 자바스크립트 실행 (보기 > 개발자 > Apple Events의 자바스크립트 허용 필요)."""
+    js = js.replace("\\", "\\\\").replace('"', '\\"')
+    r = subprocess.run(["osascript", "-e",
+                        f'tell application "Google Chrome" to execute front window\'s active tab javascript "{js}"'],
+                       capture_output=True, text=True, timeout=30)
+    if r.returncode:
+        raise RuntimeError(r.stderr.strip()[:300])
+    return r.stdout.strip()
+
+
+CLICK_JS = """(() => {
+  if (!location.href.includes('/intent/')) return location.href.includes('/login') ? 'login' : 'gone';
+  const b = document.querySelector('[data-testid=tweetButton]');
+  if (!b) return 'wait';
+  if (b.getAttribute('aria-disabled') === 'true') return 'disabled';
+  b.click(); return 'clicked';
+})()"""
+
+
+def click_x_post(load_wait=60, done_wait=30):
+    """열린 글쓰기 창의 '게시하기'를 눌러 줌. 성공하면 True."""
+    end = time.time() + load_wait
+    state = "wait"
+    while time.time() < end:
+        state = chrome_js(CLICK_JS)
+        if state != "wait":
+            break
+        time.sleep(2)
+    if state == "login":
+        raise RuntimeError("X 로그인이 풀려 있음 — Chrome에서 X에 다시 로그인하세요")
+    if state != "clicked":
+        raise RuntimeError(f"게시 버튼을 누르지 못함 (상태: {state})")
+    end = time.time() + done_wait
+    while time.time() < end:  # 게시되면 글쓰기 화면이 사라짐
+        time.sleep(2)
+        try:
+            gone = chrome_js("!document.querySelector('[data-testid=tweetButton]') || !location.href.includes('/intent/')")
+        except RuntimeError:
+            return True  # 창이 닫힘
+        if gone == "true":
+            return True
+    raise NoRetry("게시 버튼은 눌렀지만 완료 확인 안 됨 — X에서 직접 확인하세요")
+
+
+def post_x_browser(cfg, post, day_dir):
+    open_x_compose(post, day_dir)
+    if not cfg.get("x_auto_click", True):
+        notify("X 글 준비 완료", "열린 X 창에서 '게시하기'만 눌러 주세요")
+        return "manual"
+    try:
+        click_x_post()
+        return "browser"
+    except Exception as e:
+        notify("X 자동 게시 실패", f"열린 창에서 '게시하기'를 직접 눌러 주세요 ({e})")
+        raise
 
 
 def post_x(post):
@@ -662,12 +719,12 @@ def post_x(post):
 
 def post_x_or_open(cfg, post, day_dir):
     if x_mode(cfg) == "manual":
-        return open_x_compose(post, day_dir)
+        return post_x_browser(cfg, post, day_dir)
     try:
         return with_retry("x", lambda: post_x(post))
     except XNoCredits as e:
-        log(f"X 크레딧 없음 → 글쓰기 창 열기로 전환: {e}")
-        return open_x_compose(post, day_dir)
+        log(f"X 크레딧 없음 → 브라우저 게시로 전환: {e}")
+        return post_x_browser(cfg, post, day_dir)
 
 
 def with_retry(name, fn):
@@ -794,7 +851,7 @@ def run(args):
         try:
             rid = fn() if name == "x" else with_retry(name, fn)
             results[name] = {"ok": True, "id": rid}
-            log(f"✅ {name} " + ("글쓰기 창 열림 (게시 버튼은 직접)" if rid == "manual" else "업로드 성공"))
+            log(f"✅ {name} " + {"manual": "글쓰기 창 열림 (게시 버튼은 직접)", "browser": "브라우저로 게시 완료"}.get(rid, "업로드 성공"))
         except Exception as e:  # 한 곳이 실패해도 나머지는 계속
             results[name] = {"ok": False, "error": f"{type(e).__name__}: {e}"}
             log(f"❌ {name} 실패: {e}")
