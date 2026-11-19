@@ -639,62 +639,30 @@ def open_x_compose(post, day_dir=None):
     return "manual"
 
 
-def chrome_js(js):
-    """Chrome 앞 창의 현재 탭에서 자바스크립트 실행 (보기 > 개발자 > Apple Events의 자바스크립트 허용 필요)."""
-    js = js.replace("\\", "\\\\").replace('"', '\\"')
-    r = subprocess.run(["osascript", "-e",
-                        f'tell application "Google Chrome" to execute front window\'s active tab javascript "{js}"'],
-                       capture_output=True, text=True, timeout=30)
-    if r.returncode:
-        raise RuntimeError(r.stderr.strip()[:300])
-    return r.stdout.strip()
-
-
-CLICK_JS = """(() => {
-  if (!location.href.includes('/intent/')) return location.href.includes('/login') ? 'login' : 'gone';
-  const b = document.querySelector('[data-testid=tweetButton]');
-  if (!b) return 'wait';
-  if (b.getAttribute('aria-disabled') === 'true') return 'disabled';
-  b.click(); return 'clicked';
-})()"""
-
-
-def click_x_post(load_wait=60, done_wait=30):
-    """열린 글쓰기 창의 '게시하기'를 눌러 줌. 성공하면 True."""
-    end = time.time() + load_wait
-    state = "wait"
-    while time.time() < end:
-        state = chrome_js(CLICK_JS)
-        if state != "wait":
-            break
-        time.sleep(2)
-    if state == "login":
-        raise RuntimeError("X 로그인이 풀려 있음 — Chrome에서 X에 다시 로그인하세요")
-    if state != "clicked":
-        raise RuntimeError(f"게시 버튼을 누르지 못함 (상태: {state})")
-    end = time.time() + done_wait
-    while time.time() < end:  # 게시되면 글쓰기 화면이 사라짐
-        time.sleep(2)
-        try:
-            gone = chrome_js("!document.querySelector('[data-testid=tweetButton]') || !location.href.includes('/intent/')")
-        except RuntimeError:
-            return True  # 창이 닫힘
-        if gone == "true":
-            return True
-    raise NoRetry("게시 버튼은 눌렀지만 완료 확인 안 됨 — X에서 직접 확인하세요")
-
-
 def post_x_browser(cfg, post, day_dir):
-    open_x_compose(post, day_dir)
-    if not cfg.get("x_auto_click", True):
+    """전용 Chrome으로 X 글쓰기 창을 열고 게시 버튼까지 누름. 실패하면 일반 Chrome에 창을 열어 줌."""
+    if x_mode(cfg) == "manual":
+        open_x_compose(post, day_dir)
         notify("X 글 준비 완료", "열린 X 창에서 '게시하기'만 눌러 주세요")
         return "manual"
+    import browser_post
     try:
-        click_x_post()
-        return "browser"
+        return browser_post.run("x", x_intent_url(post), day_dir=day_dir)
     except Exception as e:
-        notify("X 자동 게시 실패", f"열린 창에서 '게시하기'를 직접 눌러 주세요 ({e})")
-        raise
+        open_x_compose(post, day_dir)
+        notify("X 자동 게시 실패", f"열린 창에서 '게시하기'를 직접 눌러 주세요 ({str(e)[:80]})")
+        raise NoRetry(f"X 브라우저 게시 실패: {e}")
+
+
+def post_instagram_any(cfg, post, image_urls, tokens, cards, day_dir):
+    if ig_mode(cfg) == "api":
+        return with_retry("instagram", lambda: post_instagram(post, image_urls, tokens))
+    import browser_post
+    try:  # 재시도 안 함 (이미 올라갔을 수 있어 중복 위험)
+        return browser_post.run("instagram", cards, post["instagram"], day_dir=day_dir)
+    except Exception as e:
+        notify("인스타 자동 게시 실패", f"인스타에서 직접 확인해 주세요 ({str(e)[:80]})")
+        raise NoRetry(f"인스타 브라우저 게시 실패: {e}")
 
 
 def post_x(post):
@@ -718,7 +686,7 @@ def post_x(post):
 
 
 def post_x_or_open(cfg, post, day_dir):
-    if x_mode(cfg) == "manual":
+    if x_mode(cfg) in ("manual", "browser"):
         return post_x_browser(cfg, post, day_dir)
     try:
         return with_retry("x", lambda: post_x(post))
@@ -767,16 +735,26 @@ def refresh_tokens(cfg):
 
 
 def x_mode(cfg):
-    """manual: 글쓰기 창만 열어 줌(무료) / api: API로 자동 게시, 크레딧 없으면 manual로 전환."""
-    return cfg.get("x_mode", "manual")
+    """browser: 전용 Chrome으로 게시 버튼까지 누름 / manual: 글쓰기 창만 열어 줌 / api: API 게시(크레딧 없으면 browser)."""
+    return cfg.get("x_mode", "browser")
+
+
+def ig_mode(cfg):
+    """browser: 전용 Chrome으로 인스타 웹에 게시 / api: Meta API."""
+    return cfg.get("instagram_mode", "browser")
+
+
+def needs_image_host(cfg, p):
+    """API 방식은 이미지 공개 주소가 필요 (브라우저 방식은 파일을 바로 올림)."""
+    return bool(p.get("threads") or (p.get("instagram") and ig_mode(cfg) == "api"))
 
 
 def available_platforms(cfg):
     """켜져 있어도 키가 비어 있는 플랫폼은 끔 (키를 받는 대로 하나씩 켜지도록)."""
     p = dict(cfg["platforms"])
     for name, keys in REQUIRED_KEYS.items():
-        if name == "x" and x_mode(cfg) == "manual":
-            continue  # 반자동은 키가 필요 없음
+        if (name == "x" and x_mode(cfg) != "api") or (name == "instagram" and ig_mode(cfg) == "browser"):
+            continue  # 브라우저 방식은 키가 필요 없음
         missing = [k for k in keys if not os.environ.get(k)]
         if p.get(name) and missing:
             log(f"– {name}: 키 없음({', '.join(missing)}) → 건너뜀")
@@ -806,7 +784,7 @@ def run(args):
         if not any(p.get(k) for k in REQUIRED_KEYS):  # Claude 를 부르기 전에 종료
             log("올릴 수 있는 플랫폼이 없음 (.env 키 확인) → 종료")
             return True
-        if (p.get("instagram") or p.get("threads")) and not os.environ.get("IMGBB_API_KEY"):
+        if needs_image_host(cfg, p) and not os.environ.get("IMGBB_API_KEY"):
             raise RuntimeError("인스타·스레드 이미지 업로드에 IMGBB_API_KEY 가 필요함")
 
     news = collect_news(cfg, set(posted["urls"]))
@@ -839,17 +817,17 @@ def run(args):
 
     tokens = refresh_tokens({**cfg, "platforms": p})
     image_urls = [with_retry("이미지 업로드", lambda c=c: upload_image(c)) for c in cards] \
-        if (p.get("instagram") or p.get("threads")) else []
+        if needs_image_host(cfg, p) else []
 
     results = {}
-    jobs = [("instagram", lambda: post_instagram(post, image_urls, tokens)),
+    jobs = [("instagram", lambda: post_instagram_any(cfg, post, image_urls, tokens, cards, day_dir)),
             ("threads", lambda: post_threads(post, image_urls, tokens)),
             ("x", lambda: post_x_or_open(cfg, post, day_dir))]
     for name, fn in jobs:
         if not p.get(name):
             continue
         try:
-            rid = fn() if name == "x" else with_retry(name, fn)
+            rid = fn() if name in ("x", "instagram") else with_retry(name, fn)
             results[name] = {"ok": True, "id": rid}
             log(f"✅ {name} " + {"manual": "글쓰기 창 열림 (게시 버튼은 직접)", "browser": "브라우저로 게시 완료"}.get(rid, "업로드 성공"))
         except Exception as e:  # 한 곳이 실패해도 나머지는 계속

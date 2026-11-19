@@ -11,7 +11,8 @@
 - **뉴스 큐레이션**: 구글 뉴스 · BBC 피드에서 후보를 모아 Claude가 중요한 소식 3개를 고름. 이미 올린 기사는 제외
 - **캐러셀 이미지 4장**: 표지(소식 3개 요약) + 소식별 카드 3장. 소식 카드는 팀 대표색 배경, 축구장 라인, 리그 태그, 기사 속 핵심 숫자를 크게 표시. 경기 결과는 스코어보드로 표시. 숫자·스코어가 실제 기사에 있는지 검사
 - **플랫폼별 글**: 인스타 캡션(해시태그 포함), 스레드(500자 이내), X(가중치 280자 이내 + 원문 링크)
-- **X 브라우저 게시(기본)**: X API는 글마다 요금이 붙어서, 기본값은 글과 링크가 채워진 X 글쓰기 창을 Chrome으로 열고 게시 버튼까지 자동으로 누름(Chrome 메뉴 **보기 → 개발자 → Apple Events의 자바스크립트 허용** 필요). 실패하면 알림 → 열린 창에서 직접 누르면 됨. `"x_auto_click": false`면 창만 열어 줌. `"x_mode": "api"`면 API로 게시하고 크레딧이 없으면(402) 브라우저 게시로 전환. ⚠️ 브라우저 자동 클릭은 X 약관상 계정 제재 위험이 있음
+- **인스타그램 · X 브라우저 게시(기본)**: API 키 없이, 자동 업로드 **전용 Chrome 프로필**(`state/browser-profile`)로 인스타 웹·X 화면을 조종해 게시. 인스타는 카드 4장 캐러셀(4:5 비율) + 캡션, X는 글 + 원문 링크. 실패하면 화면을 `output/날짜/fail_*.png`로 저장하고 맥 알림(X는 일반 Chrome에 글쓰기 창도 열어 줌). ⚠️ 브라우저 자동화는 인스타그램·X 약관상 계정 제재 위험이 있음
+- **방식 바꾸기**: `config.json`의 `instagram_mode`(`browser`/`api`), `x_mode`(`browser`/`manual`/`api`). `api`는 키가 필요하고, X는 크레딧이 없으면(402) 브라우저 게시로 전환
 - **업로드 전 검사**: 글자 수, 빈 항목, 본문 링크, 후보에 없는 링크(지어낸 링크)를 검사하고, 걸리면 이유를 알려 주고 한 번 더 쓰게 함
 - **출처 자동 표기**: 참고한 기사의 언론사 이름을 프로그램이 직접 붙임
 - **원문 링크**: 구글 뉴스 중간 주소를 실제 기사 주소로 변환
@@ -27,11 +28,20 @@
 git clone https://github.com/joheeyong/sns-autopost.git ~/sns-autopost
 cd ~/sns-autopost
 python3 -m venv .venv
-.venv/bin/pip install feedparser requests pillow tweepy
+.venv/bin/pip install feedparser requests pillow tweepy playwright
 cp .env.example .env && chmod 600 .env
 ```
 
 필요한 것: macOS(카드 글꼴로 Apple SD Gothic Neo 사용), Python 3.10+, [Claude Code](https://claude.com/claude-code) CLI
+
+## 브라우저 게시 로그인 (처음 한 번)
+
+```bash
+.venv/bin/python browser_post.py login   # 전용 Chrome이 뜨면 인스타그램 · X 로그인 후 창 닫기
+.venv/bin/python browser_post.py check   # 로그인 상태 확인
+```
+
+Chrome이 설치되어 있어야 합니다. 일반 Chrome과 프로필이 분리되어 있어 평소 쓰는 Chrome에는 영향이 없습니다.
 
 ## 키 설정 (`.env`)
 
@@ -40,7 +50,7 @@ cp .env.example .env && chmod 600 .env
 | `CLAUDE_CODE_OAUTH_TOKEN` | 터미널에서 `claude setup-token` (1년 유효) |
 | `IMGBB_API_KEY` | https://api.imgbb.com 에서 가입 후 "Get API key" |
 | `X_API_KEY` 외 3개 | `x_mode: "api"`일 때만 필요. https://developer.x.com → 앱 생성 → 권한 **Read and Write** → Keys and tokens → 크레딧 충전 |
-| `IG_USER_ID`, `IG_ACCESS_TOKEN` | Meta 개발자 앱 → Instagram API(Instagram 로그인 방식) → 비즈니스/크리에이터 계정 연결 |
+| `IG_USER_ID`, `IG_ACCESS_TOKEN` | `instagram_mode: "api"`일 때만 필요. Meta 개발자 앱 → Instagram API(Instagram 로그인 방식) → 비즈니스/크리에이터 계정 연결 |
 | `THREADS_USER_ID`, `THREADS_ACCESS_TOKEN` | Meta 개발자 앱 → Threads API 사용 사례 추가 |
 
 `.env`와 `state/`(토큰·게시 기록)는 `.gitignore`에 들어 있어 저장소에 올라가지 않습니다.
@@ -87,5 +97,6 @@ launchctl kickstart gui/$(id -u)/com.luxrobo.sns-autopost
 | `topic`, `audience`, `tone` | Claude에게 주는 주제 · 독자 · 말투 |
 | `feeds` | 뉴스 RSS 주소 목록 |
 | `platforms` | 플랫폼별 켜기/끄기 |
-| `x_mode` | `manual`(글쓰기 창만 열기, 무료) / `api`(자동 게시, 크레딧 필요) |
+| `instagram_mode` | `browser`(전용 Chrome으로 게시, 기본) / `api`(Meta API) |
+| `x_mode` | `browser`(전용 Chrome으로 게시, 기본) / `manual`(글쓰기 창만 열기) / `api`(크레딧 필요) |
 | `card` | 카드의 계정 이름(`brand`)과 색상 |

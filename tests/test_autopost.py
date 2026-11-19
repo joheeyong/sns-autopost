@@ -134,37 +134,52 @@ class Cards(unittest.TestCase):
                 self.assertEqual(Image.open(p).size, (1080, 1350))
 
 
-class XBrowser(unittest.TestCase):
-    def test_click_success(self):
-        seq = iter(["wait", "clicked", "false", "true"])
-        with mock.patch.object(a, "chrome_js", side_effect=lambda js: next(seq)), mock.patch("time.sleep"):
-            self.assertTrue(a.click_x_post())
-
-    def test_logged_out_raises(self):
-        with mock.patch.object(a, "chrome_js", return_value="login"), mock.patch("time.sleep"):
-            with self.assertRaises(RuntimeError):
-                a.click_x_post()
-
-    def test_failure_notifies(self):
-        with mock.patch.object(a, "open_x_compose"), mock.patch.object(a, "notify") as n, \
-             mock.patch.object(a, "click_x_post", side_effect=RuntimeError("x")):
-            with self.assertRaises(RuntimeError):
-                a.post_x_browser({}, good_post(), None)
+class Browser(unittest.TestCase):
+    def test_x_browser_failure_opens_compose_and_notifies(self):
+        import browser_post
+        with mock.patch.object(browser_post, "run", side_effect=RuntimeError("no button")), \
+             mock.patch.object(a, "open_x_compose") as op, mock.patch.object(a, "notify") as n:
+            with self.assertRaises(a.NoRetry):
+                a.post_x_browser({"x_mode": "browser"}, good_post(), None)
+        op.assert_called_once()
         n.assert_called_once()
+
+    def test_x_manual_only_opens(self):
+        with mock.patch.object(a, "open_x_compose") as op, mock.patch.object(a, "notify"):
+            self.assertEqual(a.post_x_browser({"x_mode": "manual"}, good_post(), None), "manual")
+        op.assert_called_once()
+
+    def test_instagram_browser_uses_files_not_urls(self):
+        import browser_post
+        with mock.patch.object(browser_post, "run", return_value="browser") as r:
+            rid = a.post_instagram_any({}, good_post(), [], {}, ["c0.jpg", "c1.jpg"], None)
+        self.assertEqual(rid, "browser")
+        self.assertEqual(r.call_args.args[:3], ("instagram", ["c0.jpg", "c1.jpg"], good_post()["instagram"]))
+
+    def test_image_host_only_for_api(self):
+        self.assertFalse(a.needs_image_host({}, {"instagram": True, "x": True}))
+        self.assertTrue(a.needs_image_host({}, {"threads": True}))
+        self.assertTrue(a.needs_image_host({"instagram_mode": "api"}, {"instagram": True}))
+
+    def test_any_text_exact(self):
+        import browser_post
+        rx = browser_post.any_text("다음", "Next")
+        self.assertTrue(rx.match("Next") and not rx.match("Next page"))
 
 
 class Platforms(unittest.TestCase):
     def test_missing_keys_skipped(self):
-        cfg = {"platforms": {"instagram": True, "threads": True, "x": True}}
+        cfg = {"x_mode": "api", "instagram_mode": "api",
+               "platforms": {"instagram": True, "threads": True, "x": True}}
         env = {"X_API_KEY": "k", "X_API_SECRET": "s", "X_ACCESS_TOKEN": "t", "X_ACCESS_SECRET": "ts"}
         with mock.patch.dict(os.environ, env, clear=True):
             p = a.available_platforms(cfg)
         self.assertEqual(p, {"instagram": False, "threads": False, "x": True})
 
     def test_manual_x_needs_no_keys(self):
-        cfg = {"x_mode": "manual", "platforms": {"instagram": True, "threads": True, "x": True}}
+        cfg = {"platforms": {"instagram": True, "threads": True, "x": True}}  # 기본값 = 브라우저
         with mock.patch.dict(os.environ, {}, clear=True):
-            self.assertEqual(a.available_platforms(cfg), {"instagram": False, "threads": False, "x": True})
+            self.assertEqual(a.available_platforms(cfg), {"instagram": True, "threads": False, "x": True})
 
     def test_intent_url_has_text_and_link(self):
         from urllib.parse import urlparse, parse_qs
